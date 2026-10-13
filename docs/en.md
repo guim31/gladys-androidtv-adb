@@ -1,61 +1,202 @@
-# Demo Devices Template
+# Android TV / Fire TV (ADB)
 
-This is the user documentation of the integration. Gladys re-hosts this file
-and shows a permanent **Documentation** link to it in the Configuration screen
-(in the user's language, with English as the fallback) — it is when
-configuring that the user needs it most. Keep the short onboarding hints in
-the `section` blocks of the manifest `config_schema`; put the long
-step-by-step (screenshots, troubleshooting…) here.
+Control your Android TV, Google TV, NVIDIA SHIELD, Android boxes and Amazon Fire TV from Gladys, over the
+local network, with ADB (Android Debug Bridge): power, the application on screen, playback, volume and remote
+keys, plus scene triggers, scene actions and a dashboard widget.
 
-## What you get
+> **Developed without the hardware: feedback welcome.** The integration is tested against simulated devices
+> built from real outputs, not yet on every model. Tell us on the forum what works on yours.
 
-Six demo devices show up after installation: a weather station (real data
-from Open-Meteo), a switch, a dimmable light, a smart plug with power
-metering, a motion sensor and a camera.
+This integration is not affiliated with Google, Amazon or NVIDIA. Android, Google TV, Fire TV and SHIELD are
+trademarks of their owners.
+
+## Overview
+
+Each TV or box becomes one device in Gladys, identified by its serial number (not by its IP address). Gladys
+connects to the device's network debugging port (5555), with a key of its own that you allow once on the
+screen. Nothing is installed on the device, and no cloud is involved.
+
+What you get:
+
+- turn the screen on and off, and know whether it is on, in standby or showing the screensaver;
+- the application on screen, by its name (Netflix, YouTube, Prime Video, myCANAL…), and open any installed
+  application from Gladys;
+- the playback state (playing, paused, stopped) of the application on screen;
+- the volume, when the device reports it, and the remote keys (home, back, arrows, OK, playback, volume);
+- scene triggers ("an application comes to the screen", "playback starts, pauses or stops") and scene actions
+  ("open an application", "press a key", "open an address").
+
+### Complementary to Android TV Remote
+
+The [Android TV Remote](https://github.com/guim31/gladys-integration-android-tv-remote) integration uses the
+protocol of the Google TV remote app (Remote v2). Both can be installed together:
+
+| Need                                | Android TV Remote | This integration (ADB) |
+| ----------------------------------- | ----------------- | ---------------------- |
+| Amazon Fire TV                      | no                | yes                    |
+| Open any installed application      | from a list       | yes                    |
+| Know which application is on screen | no                | yes                    |
+| Playback state for scenes           | partial           | yes                    |
+| Works without developer options     | yes               | no                     |
+| Pairing                             | PIN code          | "Allow debugging?"     |
+
+## Requirements
+
+- Gladys Assistant **5.1.0** or later.
+- The device and Gladys on the same local network, the device with a fixed IP address (a DHCP reservation in
+  your router).
+- Developer options and network debugging enabled on the device (below). It is a one-time setup.
+
+### Android TV, Google TV, NVIDIA SHIELD
+
+1. Settings → Device preferences → About: click **Build** seven times. "You are now a developer" shows.
+2. Settings → Device preferences → Developer options: enable **USB debugging**.
+3. On an NVIDIA SHIELD, also enable **Network debugging** in the same menu: it shows the address to use. On a
+   Chromecast with Google TV and most boxes, USB debugging opens port 5555 on the network.
+
+Some Android 11+ devices only offer "Wireless debugging" (pairing code, random port): that mode is not
+supported. On such a device, run once `adb tcpip 5555` from a computer connected to it (it lasts until the next
+restart of the device).
+
+### Amazon Fire TV
+
+1. Settings → My Fire TV → About: click the name of the device seven times.
+2. Settings → My Fire TV → Developer options: enable **ADB debugging**.
 
 ## Configuration
 
-1. Open the **Configuration** tab of the integration.
-2. Set the **latitude** and **longitude** the demo weather station should
-   observe (they default to Paris), and pick your temperature unit.
-   The **refresh interval** sets how often the weather station and the
-   plug's power are read: every 5 minutes by default, every minute at most.
-3. Save: the devices appear in the **Discovery** tab, ready to be added.
+In Gladys: Integrations → Android TV / Fire TV (ADB) → Configuration.
 
-The **Prefer the local connection** toggle drives the demo plug: it reports
-the channel it actually uses as a badge (local or cloud), with an orange dot
-when it runs degraded (local refused, cloud fallback).
+- **Device IP addresses**: one address per TV or box, separated by commas, e.g. `192.168.1.50, 192.168.1.51`.
+  The port is 5555 unless you add another one (`192.168.1.50:5556`).
+- **Refresh while on**: how often a device that is on is read, 5 to 60 seconds (10 by default). A device in
+  standby is read once a minute.
+- **Language of the feature names**: the names given to the features when you add a device (they do not change
+  afterwards), and the application names sent with the scene events. French by default.
 
-## Actions
+Save, then add the devices from the **Discovery** tab.
 
-- **Test the weather provider** — performs a live request to Open-Meteo and
-  shows the current temperature and humidity under the button.
-- **Identify a device** — pick one of your devices in the list and it will
-  signal itself (the demo light "blinks" in the logs).
+### Allowing Gladys on the device
 
-## Scenes
+At the first connection, the screen of the device asks **"Allow USB debugging?"** with the fingerprint of the
+key of Gladys. Tick **"Always allow from this computer"** and accept. Without the tick, the question comes back
+at every connection.
 
-The integration adds its own cards to the scene editor (Gladys 5.1 or
-later), under the **Integrations** category:
+Gladys asks once by itself, right after you saved the address. If you missed the question (screen off, nobody
+in front of the TV), turn the TV on and run the **Connect the devices** action at the bottom of the
+Configuration screen: the question shows again, and the result tells, for each address, whether Gladys is
+connected. It also shows the fingerprint of the key, to compare with the one on the screen.
 
-- **Motion detected** (trigger) — starts the scene when a demo motion sensor
-  sees something move. Optionally pick the sensor and what moved (person,
-  animal); left empty, any detection matches. The following actions can
-  read what moved with `{{triggerEvent.data.target}}`.
-- **Identify a device** (action) — makes the chosen device signal itself.
-  It returns whether the device could signal itself, so the following
-  actions can depend on it.
+## Devices
 
-## Dashboard
+Each TV or box is one device, named after its model (you can rename it). Its features:
 
-Add the **Demo status** widget to a dashboard: it shows the live
-temperature of the weather station and the power of the office plug, the
-connection the plug currently uses (orange when degraded) and the observed
-location. Its **Identify the light** button makes the demo light signal
-itself.
+| Feature                              | Type             | What it does                                                                                  |
+| ------------------------------------ | ---------------- | --------------------------------------------------------------------------------------------- |
+| Power                                | TV on/off        | 1 when the screen is on (screensaver included), 0 in standby; switching it wakes or sleeps it |
+| Application                          | Selection        | the application on screen; choosing another one opens it                                      |
+| Playback state                       | Selection (read) | playing, paused, stopped, nothing playing, screensaver, standby                               |
+| Volume                               | TV volume (%)    | the media volume, when the device reports it; setting it changes it                           |
+| Home, Back, arrows, OK               | TV buttons       | the navigation keys                                                                           |
+| Menu, Play, Pause, Stop              | TV buttons       | the menu and playback keys                                                                    |
+| Next, Previous, Rewind, Fast forward | TV buttons       | the media keys                                                                                |
+| Volume +, Volume -, Mute             | TV buttons       | the volume keys (on a box, forwarded to the TV by HDMI-CEC)                                   |
+
+The **Application** list holds the installed applications that open from the home screen, with their names for
+the common ones (Netflix, YouTube, Prime Video, Disney+, myCANAL, Molotov, france.tv, Arte, Spotify, Deezer,
+Plex, Kodi, VLC…) and the package name for the others. It is read again every six hours.
+
+### Refresh
+
+Gladys reads each device by itself (it does not rely on the core's polling): every 10 seconds (your setting)
+while the screen is on, over one connection kept open so that keys respond at once; once a minute in standby,
+with the connection closed after each read. A read is one shell command on the device (power, activity, media
+session and audio state), so the load on the device is low. Only the values that change are sent to Gladys,
+plus a refresh every six hours. There is no account, no cloud and no quota.
+
+## Widget
+
+Dashboard → Edit → add the **ADB remote** widget, and choose the device. It shows the state (on, screensaver,
+standby, unreachable), the application on screen, the playback state and the volume, and **four buttons** of
+your choice (settings "Button 1" to "Button 4": back, home, play/pause and power by default). Four is the
+number of buttons Gladys allows per widget: add a second widget for other keys.
+
+## Scene triggers
+
+- **An application comes to the screen**: the application in the foreground changed. Filters: the device, a
+  known application, or any package name (e.g. `org.videolan.vlc`). The scene can use the application name, the
+  package name and the device name.
+- **Playback starts, pauses or stops**: the media session of the application on screen changed state. Filters:
+  the device and the state. The scene can use the state, the application and the device name.
+
+Both are read at the refresh pace (10 seconds by default), and only while the screen is on. Some applications
+do not publish their playback state: playback triggers then stay silent for them.
+
+## Scene actions
+
+- **Open an application on the TV**: a known application from the list (on a Fire TV, the Fire TV version is
+  chosen), or any package name.
+- **Press a remote key**: home, back, arrows, OK, menu, play/pause, play, pause, stop, next, previous, rewind,
+  fast forward, volume, mute, power, settings, search; one to twenty presses.
+- **Open an address on the TV**: an `http`, `https`, `rtsp` or `rtmp` address, opened by the matching
+  application (a YouTube link opens YouTube), or by the package you name (e.g. `org.videolan.vlc` for a camera
+  stream).
+
+There is no "run a shell command" action, on purpose: an ADB shell can install, remove or read anything on the
+device, and a scene can be edited by every Gladys administrator. Home Assistant offers one; this integration
+does not.
+
+## Scene examples
+
+- **Cinema mode**: when Netflix, Prime Video or Disney+ comes to the screen after 8 pm, dim the living room
+  lights to 20 %.
+- **Pause, lights up**: when playback pauses on the living room TV, turn the lights to 60 %; when it starts
+  again, back to 20 %.
+- **Morning news**: at 7:30 on weekdays, turn the kitchen TV on and open the address of a news stream on
+  YouTube.
+- **Bedtime for the kids**: when YouTube Kids comes to the screen of the children's TV after 9 pm, send a
+  message to the parents, or put the TV in standby.
 
 ## Troubleshooting
 
-The integration logs everything it does: check the integration logs from the
-Gladys UI (or `docker logs` on the host) with `LOG_LEVEL=debug` for the full
-detail.
+- **"Never reached"**: check the address, that the device is on, and that network debugging is enabled. Some
+  TVs (Philips) accept the first authorization only over Wi-Fi: authorize once over Wi-Fi, then the wired
+  connection works too.
+- **"Not allowed yet"**: accept the question on the screen and tick "Always allow", or run **Connect the
+  devices** with the screen on. Android 11+ forgets an authorization unused for seven days: Developer options →
+  "Disable adb authorization timeout".
+- **"Wireless debugging (pairing) port"**: the address points to the port of Android 11 wireless debugging, not
+  to network debugging on 5555 (see Requirements).
+- **The volume always shows 100 %**: on a box connected by HDMI, the volume is the TV's (HDMI-CEC), and the box
+  outputs a fixed volume. Use the Volume +/- keys, which the box forwards to the TV.
+- **An application is missing from the list**: it has no home screen entry (a service, an input). Use the
+  "Open an application" action with its package name.
+- **Another ADB client cannot connect**: some devices accept one ADB connection at a time. While the screen is
+  on, Gladys keeps one open.
+- **The device does not wake up from standby**: in deep standby some TVs turn their network off, so nothing can
+  reach them. Enable the network standby option of the TV ("Wake on network", "Quick start", "Remote start").
+- **More details**: set `LOG_LEVEL=debug` on the integration to see every read in its logs.
+
+To remove the authorization of Gladys from a device: Developer options → "Revoke USB debugging authorizations".
+
+## Limits
+
+- Developed without the hardware: the formats of the device answers come from the Home Assistant libraries and
+  the Android sources, and differ across models and versions. Feedback welcome.
+- No automatic discovery: the devices do not announce their network debugging port reliably, and the
+  integration cannot listen to the local network by itself. Type the addresses.
+- A device whose network sleeps in standby cannot be turned on by Gladys.
+- The playback state depends on the application publishing it (Netflix, YouTube, Plex, Spotify, VLC do; some
+  do not).
+- No HDMI input switching, no channel, no screenshot, no free shell command.
+- Android 11+ wireless debugging (pairing code) is not supported.
+
+## Security and privacy
+
+- The key of Gladys (an RSA key, like the one of the `adb` tool) is created at the first start and kept in the
+  data volume of the integration (`/data/adbkey`). It never leaves it and never appears in the logs. Anyone who
+  holds it, and reaches the device on the network, can control the device: keep your Gladys backups private.
+- `/data/androidtv-adb.json` keeps the identified devices: address, serial number or MAC address, model,
+  Android version, installed applications.
+- The integration only sends the fixed commands described here, reads the state of the device and never reads
+  your files. All traffic stays on your local network.

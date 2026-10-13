@@ -1,33 +1,90 @@
+// -----------------------------------------------------------------------------
+// The configuration (address list, interval, language) and what is kept under
+// /data (the ADB key, the identified devices).
+// -----------------------------------------------------------------------------
+
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { normalizeConfig, DEFAULT_CONFIG } from '../src/config.js';
+import { chmod, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { DEFAULT_CONFIG, normalizeConfig, parseHosts } from '../src/config.js';
+import { Store } from '../src/store.js';
+import { recordingLogger } from './helpers/world.js';
 
-test('normalizeConfig returns the defaults when called with no argument', () => {
-  assert.deepEqual(normalizeConfig(), DEFAULT_CONFIG);
+test('addresses: separators, ports, pasted URLs, duplicates, mistakes', () => {
+  const { hosts, invalid } = parseHosts(
+    ' 192.0.2.10, 192.0.2.11:5556;\nadb://192.0.2.12  shield.home, 192.0.2.10:5555, 300.1.1.1, 192.0.2, tv:99999 ',
+  );
+  assert.deepEqual(
+    hosts.map((h) => h.address),
+    ['192.0.2.10:5555', '192.0.2.11:5556', '192.0.2.12:5555', 'shield.home:5555'],
+  );
+  assert.deepEqual(invalid, ['300.1.1.1', '192.0.2', 'tv:99999']);
+  assert.deepEqual(parseHosts(undefined), { hosts: [], invalid: [] });
 });
 
-test('normalizeConfig keeps user values over the defaults', () => {
-  const config = normalizeConfig({ latitude: 45.5, longitude: -73.6, unit: 'fahrenheit' });
-  assert.equal(config.latitude, 45.5);
-  assert.equal(config.longitude, -73.6);
-  assert.equal(config.unit, 'fahrenheit');
+test('normalization: defaults, bounds of the interval, unknown language', () => {
+  const config = normalizeConfig();
+  assert.deepEqual(config.hosts, []);
+  assert.equal(config.pollInterval, DEFAULT_CONFIG.poll_interval);
+  assert.equal(config.language, 'fr');
+  assert.equal(normalizeConfig({ poll_interval: '2' }).pollInterval, 5);
+  assert.equal(normalizeConfig({ poll_interval: 600 }).pollInterval, 60);
+  assert.equal(normalizeConfig({ poll_interval: 'abc' }).pollInterval, 10);
+  assert.equal(normalizeConfig({ language: 'it' }).language, 'fr');
+  assert.equal(normalizeConfig({ language: 'es' }).language, 'es');
 });
 
-test('normalizeConfig coerces numeric strings coming from a form', () => {
-  const config = normalizeConfig({ latitude: '48.8', longitude: '2.3', poll_frequency: '600' });
-  assert.equal(config.latitude, 48.8);
-  assert.equal(config.longitude, 2.3);
-  assert.equal(config.poll_frequency, 600);
-  assert.equal(typeof config.poll_frequency, 'number');
+test('the ADB key is created once, kept private, and reused', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'gladys-androidtv-adb-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const lines = [];
+  const first = new Store({ dir, logger: recordingLogger(lines) });
+  await first.load();
+  assert.match(first.privateKey, /BEGIN PRIVATE KEY/);
+  const second = new Store({ dir, logger: recordingLogger(lines) });
+  await second.load();
+  assert.equal(second.privateKey, first.privateKey, 'the devices keep trusting Gladys');
+  assert.ok(!lines.some((l) => l.text.includes('PRIVATE KEY')));
 });
 
-test('normalizeConfig falls back to the default for a missing numeric field', () => {
-  const config = normalizeConfig({ unit: 'celsius' });
-  assert.equal(config.poll_frequency, DEFAULT_CONFIG.poll_frequency);
+test('identified devices are saved, and an address moves to the device that has it now', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'gladys-androidtv-adb-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const store = new Store({ dir, logger: recordingLogger() });
+  await store.load();
+  assert.equal(store.update('aaa111', { address: '192.0.2.10:5555', model: 'A' }), true);
+  assert.equal(store.update('aaa111', { address: '192.0.2.10:5555', model: 'A' }), false);
+  store.update('bbb222', { address: '192.0.2.10:5555', model: 'B' });
+  assert.equal(store.get('aaa111').address, null);
+  assert.equal(store.findByAddress('192.0.2.10:5555').uid, 'bbb222');
+  await store.flush();
+  const saved = JSON.parse(await readFile(join(dir, 'androidtv-adb.json'), 'utf8'));
+  assert.equal(saved.devices.bbb222.model, 'B');
+
+  const reloaded = new Store({ dir, logger: recordingLogger() });
+  await reloaded.load();
+  assert.equal(reloaded.findByAddress('192.0.2.10:5555').uid, 'bbb222');
 });
 
-test('GLADYS_PREFER_LOCAL defaults to true and only an explicit false disables it', () => {
-  assert.equal(normalizeConfig().GLADYS_PREFER_LOCAL, true);
-  assert.equal(normalizeConfig({ GLADYS_PREFER_LOCAL: true }).GLADYS_PREFER_LOCAL, true);
-  assert.equal(normalizeConfig({ GLADYS_PREFER_LOCAL: false }).GLADYS_PREFER_LOCAL, false);
+test('a corrupted state file or a read-only /data are not fatal, and said once', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'gladys-androidtv-adb-'));
+  t.after(async () => {
+    await chmod(dir, 0o700);
+    await rm(dir, { recursive: true, force: true });
+  });
+  await writeFile(join(dir, 'androidtv-adb.json'), '{not json');
+  const lines = [];
+  const store = new Store({ dir, logger: recordingLogger(lines) });
+  await store.load();
+  assert.deepEqual(store.devices, {});
+  if (process.getuid?.() === 0) {
+    return; // root writes anyway: the read-only case cannot be simulated
+  }
+  await chmod(dir, 0o500);
+  store.update('aaa111', { address: '192.0.2.10:5555' });
+  store.update('aaa111', { address: '192.0.2.11:5555' });
+  await store.flush();
+  assert.equal(lines.filter((l) => l.level === 'warn').length, 1);
 });

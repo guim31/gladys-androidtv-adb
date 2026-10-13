@@ -1,45 +1,93 @@
 // -----------------------------------------------------------------------------
-// Integration configuration.
-//
-// The configuration is filled in by the user in Gladys, from the `config_schema`
-// declared in `gladys-assistant-integration.json`. The SDK fetches it for you
-// (`gladys.getConfig()`) and notifies you of every change through
-// `gladys.onConfigUpdated()`.
-//
-// This module only provides defaults and normalizes the received object, so the
-// rest of the code never has to deal with `undefined`.
+// Integration configuration: defaults (they mirror the `default` values of the
+// manifest `config_schema`, see test/manifest.test.js) and normalization, so
+// the rest of the code never deals with strings, blanks or `undefined`.
 // -----------------------------------------------------------------------------
 
-// Defaults: they MUST stay consistent with the `default` values declared in the
-// `config_schema` of the manifest.
+import { DEFAULT_PORT } from './adb/connection.js';
+
+export const LANGUAGES = ['en', 'fr', 'de', 'es'];
+
 export const DEFAULT_CONFIG = {
-  latitude: 48.8566, // Paris
-  longitude: 2.3522,
-  unit: 'celsius', // 'celsius' | 'fahrenheit'
-  // Seconds between two reads of the polled sensors. Gladys polls at most once
-  // a minute: slower intervals are applied by skipping polls (see
-  // createPoller in src/devices/index.js).
-  poll_frequency: 300,
-  // Reserved key (NOT in config_schema): because the manifest declares both
-  // 'local' and 'cloud' in its `transports` field, Gladys shows a standard
-  // "Prefer the local connection" toggle and sends the user's choice here.
-  // Read-only for the integration; defaults to true.
-  GLADYS_PREFER_LOCAL: true,
+  hosts: '',
+  poll_interval: 10,
+  language: 'fr',
 };
 
+/** Seconds between two reads of a device that is on (bounds of the manifest field). */
+export const MIN_POLL_INTERVAL = 5;
+export const MAX_POLL_INTERVAL = 60;
+
+/** Seconds between two reads of a device in standby or unreachable. */
+export const STANDBY_INTERVAL = 60;
+
+const IPV4_PATTERN = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/;
+const NAME_PATTERN = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$/i;
+const MAX_HOSTS = 32;
+
 /**
- * Merge the user config with the defaults.
- * @param {Record<string, unknown>} raw config returned by the SDK
+ * Parses the device list: IP addresses (or resolvable names), with an
+ * optional port, separated by commas, semicolons, spaces or new lines.
+ * @param {unknown} raw
+ * @returns {{ hosts: { host: string, port: number, address: string }[], invalid: string[] }}
+ */
+export function parseHosts(raw) {
+  const hosts = [];
+  const invalid = [];
+  const entries = typeof raw === 'string' ? raw.split(/[\s,;]+/) : [];
+  for (const entry of entries) {
+    const text = entry
+      .trim()
+      .replace(/^(adb|tcp|https?):\/\//i, '')
+      .replace(/\/.*$/, '')
+      .toLowerCase();
+    if (!text) {
+      continue;
+    }
+    const parsed = parseHost(text);
+    if (!parsed) {
+      invalid.push(entry.trim());
+    } else if (!hosts.some((h) => h.address === parsed.address) && hosts.length < MAX_HOSTS) {
+      hosts.push(parsed);
+    }
+  }
+  return { hosts, invalid };
+}
+
+function parseHost(text) {
+  const match = text.match(/^(.+?)(?::(\d{1,5}))?$/);
+  const host = match[1];
+  const port = match[2] === undefined ? DEFAULT_PORT : Number(match[2]);
+  if (port < 1 || port > 65535) {
+    return null;
+  }
+  const ipv4 = host.match(IPV4_PATTERN);
+  if (ipv4) {
+    if (!ipv4.slice(1).every((part) => Number(part) <= 255)) {
+      return null;
+    }
+  } else if (/^[\d.]+$/.test(host) || !NAME_PATTERN.test(host)) {
+    // Digits and dots only: a mistyped address, not a name.
+    return null;
+  }
+  return { host, port, address: `${host}:${port}` };
+}
+
+/**
+ * @param {Record<string, unknown>} raw the configuration returned by the SDK
  */
 export function normalizeConfig(raw = {}) {
+  const source = raw && typeof raw === 'object' ? raw : {};
+  const { hosts, invalid } = parseHosts(
+    typeof source.hosts === 'string' ? source.hosts : DEFAULT_CONFIG.hosts,
+  );
+  const interval = Math.round(Number(source.poll_interval ?? DEFAULT_CONFIG.poll_interval));
   return {
-    ...DEFAULT_CONFIG,
-    ...raw,
-    // Force the types: config may arrive as strings from a form.
-    latitude: Number(raw.latitude ?? DEFAULT_CONFIG.latitude),
-    longitude: Number(raw.longitude ?? DEFAULT_CONFIG.longitude),
-    poll_frequency: Number(raw.poll_frequency ?? DEFAULT_CONFIG.poll_frequency),
-    // The preference is a boolean; anything but an explicit false means true.
-    GLADYS_PREFER_LOCAL: raw.GLADYS_PREFER_LOCAL !== false,
+    hosts,
+    invalidHosts: invalid,
+    pollInterval: Number.isFinite(interval)
+      ? Math.min(Math.max(interval, MIN_POLL_INTERVAL), MAX_POLL_INTERVAL)
+      : DEFAULT_CONFIG.poll_interval,
+    language: LANGUAGES.includes(source.language) ? source.language : DEFAULT_CONFIG.language,
   };
 }
