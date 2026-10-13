@@ -10,6 +10,8 @@ the notes of the version's GitHub Release.
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-10-13
+
 ### Added
 
 - Control of Android TV, Google TV, NVIDIA SHIELD, Android boxes and Amazon Fire
@@ -33,4 +35,5 @@ the notes of the version's GitHub Release.
   four languages.
 - `scripts/probe.mjs`, to check what the integration reads on a real device.
 
-[Unreleased]: https://github.com/guim31/gladys-androidtv-adb/commits/main
+[Unreleased]: https://github.com/guim31/gladys-androidtv-adb/compare/v1.0.1...HEAD
+[1.0.1]: https://github.com/guim31/gladys-androidtv-adb/releases/tag/v1.0.1
