@@ -16,8 +16,8 @@ its only runtime dependency. It started from the official JavaScript template.
 ```bash
 npm install
 npm test                                  # node --test, the built-in runner
-node --test test/devices.test.js          # one file
-node --test --test-name-pattern "plug"    # tests whose name matches
+node --test test/live.test.js             # one file
+node --test --test-name-pattern "Fire TV" # tests whose name matches
 npm run lint                              # ESLint
 npm run format:check                      # Prettier, as the CI runs it
 npm run format                            # Prettier, fix in place
@@ -31,16 +31,27 @@ pushing.
 ## Architecture
 
 ```
-index.js                          SDK wiring only: handlers registered before connect()
-src/devices/index.js              registry of the device blueprints + dispatch helpers
-src/devices/<type>.js             one device type per file (buildDevice, onPoll, onSetValue...)
+index.js                          SDK wiring only: src/app.js registers the handlers before connect()
+src/app.js                        every SDK handler -> the hub (also used by the tests)
+src/hub.js                        one loop per address: connection, reads, states, scene events, commands
+src/adb/protocol.js               ADB wire format (24-byte header, checksum, packet reader)
+src/adb/keys.js                   RSA key, AUTH signature, Android public key struct, fingerprint
+src/adb/connection.js             one TCP ADB connection: handshake, prompt, multiplexed shell streams
+src/tv/commands.js                every shell command (fixed templates, validated parameters)
+src/tv/parse.js                   readers of the dumpsys / getprop / pm outputs
+src/tv/keys.js, src/tv/apps.js    key codes, known application names (ids stored by users)
+src/devices.js                    device payload, feature names (4 languages), state values
 src/scenes.js                     scene action handlers (manifest `scene_actions`)
-src/widgets.js                    dashboard widget handlers (manifest `widgets`)
+src/widgets.js                    "ADB remote" dashboard widget (manifest `widgets`)
+src/i18n.js                       every text produced by the code, in en/fr/de/es
 src/config.js                     DEFAULT_CONFIG (mirrors the manifest defaults) + normalization
-src/weather.js                    example driver (Open-Meteo)
+src/store.js                      /data/adbkey (private key), /data/androidtv-adb.json (known devices)
+src/issues.js                     deduplicated problem logs (one line when it starts, one when it ends)
+scripts/probe.mjs                 reads a real device from a computer, changes nothing (`--raw` for fixtures)
 gladys-assistant-integration.json manifest: name, config_schema, actions, image...
-docs/en.md, docs/fr.md            user documentation, re-hosted by Gladys (mandatory)
-test/                             node --test, against the SDK's fake Gladys (integration-sdk/testing)
+docs/{en,fr,de,es}.md             user documentation, re-hosted by Gladys (same sections in the four)
+test/                             node --test: SDK fake Gladys, fake adbd on 127.0.0.1 (real RSA checks),
+                                  simulated devices per model (test/fixtures/devices.js + helpers/simulator.js)
 .github/scripts/release.mjs       release helpers (manifest bump, changelog), tested in test/
 ```
 
@@ -70,10 +81,13 @@ test/                             node --test, against the SDK's fake Gladys (in
   `type: "provider"`: 5.1.0). `test/manifest.test.js` ties the manifest to the
   code (defaults, action, scene and widget handlers): change both sides
   together.
-- **User-facing text** is bilingual (English and French): action messages,
-  manifest texts, and `docs/en.md` / `docs/fr.md`, kept in sync.
+- **User-facing text** comes in four languages (`en`, `fr`, `de` with "du",
+  `es` with "usted"): manifest texts, action messages, errors, widget texts,
+  feature names, and `docs/{en,fr,de,es}.md` with the same sections
+  (`test/i18n.test.js` checks them).
 - **Style.** Prettier formats, ESLint catches mistakes. Comments explain why,
-  in English. Tests never touch the network.
+  in English. Tests never touch the network (the fake adbd listens on
+  127.0.0.1 only).
 
 ---
 
@@ -233,3 +247,71 @@ long, et sur un « Sie »/« Ihr… » de politesse en allemand. Le store exige 
 - Docs `en`, `fr`, `de`, `es` avec les mêmes sections.
 - Chauffe, ouverture, sécurité : ne rien rendre pilotable « comme un thermostat » ou par un assistant
   vocal quand une erreur serait dangereuse (leçon d'OctoPrint).
+
+## Android TV / Fire TV par ADB (ce dépôt)
+
+Faits établis en écrivant l'intégration (13/10/2026), sans appareil réel : à confirmer ou corriger après le
+premier test sur la NVIDIA SHIELD (`node scripts/probe.mjs <ip> --raw`).
+
+**Protocole ADB (src/adb/)**
+
+- Portage de `JeffLIrion/adb_shell` (Apache-2.0) : CNXN version `0x01000000` (celle d'adb_shell, sommes de
+  contrôle actives), 1 Mo annoncé, paquets envoyés ≤ 4096 octets (tout adbd les accepte). Une somme de contrôle
+  reçue à 0 est acceptée (adbd ≥ `0x01000001` peut ne plus la calculer).
+- Authentification : le jeton de 20 octets se signe en PKCS#1 v1.5 **comme un condensat SHA-1 déjà calculé**
+  (préfixe DigestInfo SHA-1 + jeton, `privateEncrypt` de `node:crypto`). La clé publique part au format
+  `RSAPublicKey` d'Android (524 octets : taille, n0inv, n et R² en petit-boutiste, exposant), en base64 suivi
+  d'un commentaire et d'un NUL. L'empreinte affichée par la TV est le MD5 de ces 524 octets.
+- **Chaque envoi de la clé publique ouvre une fenêtre « Autoriser le débogage ? » sur la TV** : une seule fois
+  par adresse et par démarrage (ou changement de configuration), puis uniquement par l'action « Connecter les
+  appareils ». Jamais dans la boucle de lecture.
+- Un `STLS` en réponse au CNXN = port de **débogage sans fil** d'Android 11 (appairage TLS) : non pris en charge,
+  l'utilisateur doit viser le débogage réseau sur 5555.
+- Android 11+ révoque une autorisation inutilisée pendant 7 jours (option « Désactiver l'expiration des
+  autorisations adb »). La lecture continue la garde vivante.
+- Home Assistant (`androidtv`) garde une connexion ADB **permanente** et sa doc ne dit pas qu'elle empêche la
+  veille ; elle signale que **certains appareils n'acceptent qu'une connexion ADB à la fois**. Choix ici :
+  connexion gardée écran allumé, **fermée après chaque lecture en veille** (lecture toutes les 60 s). À vérifier
+  sur la SHIELD : se met-elle bien en veille avec l'intégration active ?
+- Pas de binaire `adb` dans l'image (poids, démon serveur dans 256 Mo, `~/.android` sur rootfs en lecture seule),
+  pas de Tango (`@yume-chan/adb*`, MIT) : conçu pour WebUSB/flux web, il faudrait écrire le transport TCP Node de
+  toute façon, et ses paquets sont en 0.x.
+
+**Lectures et formats (src/tv/)**
+
+- Une lecture = **une** commande shell à sections `##nom` (`STATE_COMMAND`), filtrée par `grep` sur l'appareil
+  et analysée en JavaScript (python-androidtv fait l'analyse en sh). Commandes et motifs repris de
+  python-androidtv (**MIT**, pas Apache comme annoncé dans la demande).
+- Application au premier plan : `topResumedActivity` (Android 12+), puis `ResumedActivity:`, puis
+  `mResumedActivity`, puis repli sur `dumpsys window windows` (`mFocusedApp`, `mCurrentFocus`).
+- `dumpsys media_session` : `state=3` jusqu'à Android 12, **`state=PLAYING(3)` depuis Android 13** (le motif
+  numérique seul de python-androidtv rate ce format). États transitoires (6 mise en mémoire tampon, 8–11) : on
+  garde l'état précédent, sinon chaque changement d'épisode déclencherait « arrêt » puis « lecture ».
+- `cmd package query-activities --components` n'existe pas partout : repli sur `pm list packages` croisé avec
+  la table des applications connues.
+- Sur une box en HDMI, le volume de `STREAM_MUSIC` est souvent **fixe** (le volume est celui de la TV, en
+  HDMI-CEC) : la fonctionnalité Volume affiche alors 100 %. Les touches Volume +/- restent le bon moyen.
+- Le lancement passe par `monkey -p <paquet> -c <catégorie> 1` (python-androidtv) : `LEANBACK_LAUNCHER` sur
+  Android TV, `LAUNCHER` d'abord sur Fire TV ; succès = « Events injected: 1 ». Les paquets du lanceur
+  (`home`) sont ouverts par la touche Accueil.
+- Pas de découverte mDNS : adbd peut annoncer `_adb._tcp`, mais rien ne prouve que les interrupteurs
+  « Débogage réseau » des TV l'annoncent. À tester sur la SHIELD avant d'ajouter une découverte médiée.
+
+**Côté Gladys**
+
+- `television/volume-mute` et toutes les touches `television/*` sauf `binary`, `volume`, `channel` sont des
+  **boutons poussoirs** dans le front (`TelevisionContinuousControlFeatureTypes`) : pas d'état de sourdine
+  affichable, la sourdine est dans le widget.
+- `music/playback_state` ne connaît que 1 (lecture) et 0 (pause) : l'état de lecture est un `text/select` en
+  lecture seule, dont le front affiche le **libellé** de l'option (`TextDeviceValue`, présent dès la 5.1.0).
+- Noms de fonctionnalités : « Lecture » (touche) et l'état de lecture se télescopaient en français et en
+  allemand ; le test de conformité refuse deux noms identiques sur un appareil.
+- L'application au premier plan absente des options du sélecteur y est ajoutée (et republiée) : les
+  `supported_options` d'un appareil créé se mettent à jour sans bouton « Mettre à jour ».
+
+**Dépôt**
+
+- `guim31/gladys-wled` n'a pas de `LICENSE` sur `main` : celle-ci vient de `guim31/gladys-pihole` (Apache-2.0,
+  texte complet, identique à celle de `gladys-ping-wol`).
+- Tests avec `t.mock.timers` (`setTimeout`, `Date`) et de vrais sockets : attendre en temps réel
+  (`performance.now()` + `setImmediate`), jamais un nombre fixe de tours de boucle.

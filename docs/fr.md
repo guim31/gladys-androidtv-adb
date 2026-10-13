@@ -1,67 +1,215 @@
-# Template de démonstration
+# Android TV / Fire TV (ADB)
 
-Ceci est la documentation utilisateur de l'intégration. Gladys ré-héberge ce
-fichier et affiche un lien **Documentation** permanent vers lui dans l'écran
-de configuration (dans la langue de l'utilisateur, avec l'anglais en repli) —
-c'est au moment de configurer que l'utilisateur en a le plus besoin. Gardez
-les courtes indications d'accueil dans les blocs `section` du `config_schema`
-du manifest ; mettez ici le pas-à-pas détaillé (captures d'écran, dépannage…).
+Pilotez vos Android TV, Google TV, NVIDIA SHIELD, box Android et Amazon Fire TV depuis Gladys, sur le réseau
+local, par ADB (Android Debug Bridge) : marche/arrêt, application à l'écran, lecture, volume et touches de la
+télécommande, avec des déclencheurs et des actions de scène et un widget de tableau de bord.
 
-## Ce que vous obtenez
+> **Développée sans le matériel : vos retours sont les bienvenus.** L'intégration est testée sur des appareils
+> simulés construits à partir de sorties réelles, pas encore sur chaque modèle. Dites-nous sur le forum ce qui
+> marche chez vous.
 
-Six appareils de démonstration apparaissent après l'installation : une
-station météo (vraies données Open-Meteo), un interrupteur, une lampe
-variable, une prise connectée avec mesure de puissance, un détecteur de
-mouvement et une caméra.
+Cette intégration n'est affiliée ni à Google, ni à Amazon, ni à NVIDIA (not affiliated with Google, Amazon or
+NVIDIA). Android, Google TV, Fire TV et SHIELD sont des marques de leurs propriétaires.
+
+## Présentation
+
+Chaque TV ou box devient un appareil dans Gladys, identifié par son numéro de série (et non par son adresse IP).
+Gladys se connecte au port de débogage réseau de l'appareil (5555), avec une clé à lui que vous autorisez une
+fois à l'écran. Rien n'est installé sur l'appareil, aucun cloud n'intervient.
+
+Ce que vous obtenez :
+
+- allumer et éteindre l'écran, et savoir s'il est allumé, en veille ou sur l'économiseur d'écran ;
+- l'application à l'écran, par son nom (Netflix, YouTube, Prime Video, myCANAL…), et l'ouverture de n'importe
+  quelle application installée depuis Gladys ;
+- l'état de lecture (lecture, pause, arrêt) de l'application à l'écran ;
+- le volume, quand l'appareil le donne, et les touches de la télécommande (accueil, retour, flèches, OK,
+  lecture, volume) ;
+- des déclencheurs de scène (« une application passe à l'écran », « la lecture démarre, se met en pause ou
+  s'arrête ») et des actions de scène (« ouvrir une application », « appuyer sur une touche », « ouvrir une
+  adresse »).
+
+### En complément d'Android TV Remote
+
+L'intégration [Android TV Remote](https://github.com/guim31/gladys-integration-android-tv-remote) utilise le
+protocole de l'application télécommande Google TV (Remote v2). Les deux peuvent être installées ensemble :
+
+| Besoin                                        | Android TV Remote | Cette intégration (ADB)     |
+| --------------------------------------------- | ----------------- | --------------------------- |
+| Amazon Fire TV                                | non               | oui                         |
+| Ouvrir n'importe quelle application installée | depuis une liste  | oui                         |
+| Savoir quelle application est à l'écran       | non               | oui                         |
+| État de lecture pour les scènes               | partiel           | oui                         |
+| Sans les options pour les développeurs        | oui               | non                         |
+| Appairage                                     | code PIN          | « Autoriser le débogage ? » |
+
+## Prérequis
+
+- Gladys Assistant **5.1.0** ou plus récent.
+- L'appareil et Gladys sur le même réseau local, l'appareil avec une adresse IP fixe (une réservation DHCP dans
+  votre box).
+- Les options pour les développeurs et le débogage réseau activés sur l'appareil (ci-dessous). C'est à faire une
+  seule fois.
+
+### Android TV, Google TV, NVIDIA SHIELD
+
+1. Paramètres → Préférences de l'appareil → À propos : cliquez sept fois sur **Build**. « Vous êtes maintenant
+   un développeur » s'affiche.
+2. Paramètres → Préférences de l'appareil → Options pour les développeurs : activez le **Débogage USB**.
+3. Sur une NVIDIA SHIELD, activez aussi le **Débogage réseau** dans le même menu : il affiche l'adresse à
+   utiliser. Sur une Chromecast avec Google TV et la plupart des box, le débogage USB ouvre le port 5555 sur le
+   réseau.
+
+Certains appareils Android 11+ ne proposent que le « Débogage sans fil » (code d'appairage, port aléatoire) : ce
+mode n'est pas pris en charge. Sur un tel appareil, lancez une fois `adb tcpip 5555` depuis un ordinateur qui y
+est connecté (valable jusqu'au prochain redémarrage de l'appareil).
+
+### Amazon Fire TV
+
+1. Paramètres → Ma Fire TV → À propos : cliquez sept fois sur le nom de l'appareil.
+2. Paramètres → Ma Fire TV → Options pour les développeurs : activez le **Débogage ADB**.
 
 ## Configuration
 
-1. Ouvrez l'onglet **Configuration** de l'intégration.
-2. Renseignez la **latitude** et la **longitude** que la station météo de
-   démonstration doit observer (Paris par défaut), et choisissez votre unité
-   de température. L'**intervalle de rafraîchissement** règle la fréquence
-   de lecture de la station météo et de la puissance de la prise : toutes
-   les 5 minutes par défaut, toutes les minutes au plus.
-3. Enregistrez : les appareils apparaissent dans l'onglet **Découverte**,
-   prêts à être ajoutés.
+Dans Gladys : Intégrations → Android TV / Fire TV (ADB) → Configuration.
 
-Le réglage **Préférer la connexion locale** pilote la prise de
-démonstration : elle affiche en badge le canal réellement utilisé (local ou
-cloud), avec un point orange quand elle fonctionne en mode dégradé (local
-refusé, bascule cloud).
+- **Adresses IP des appareils** : une adresse par TV ou box, séparées par des virgules, par exemple
+  `192.168.1.50, 192.168.1.51`. Le port est 5555, sauf si vous en ajoutez un autre (`192.168.1.50:5556`).
+- **Rafraîchissement allumé** : la fréquence de lecture d'un appareil allumé, de 5 à 60 secondes (10 par
+  défaut). Un appareil en veille est lu une fois par minute.
+- **Langue des noms de fonctionnalités** : les noms donnés aux fonctionnalités à l'ajout d'un appareil (ils ne
+  changent plus ensuite), et les noms d'applications envoyés avec les événements de scène. Français par défaut.
 
-## Actions
+Enregistrez, puis ajoutez les appareils depuis l'onglet **Découverte**.
 
-- **Tester le fournisseur météo** — effectue une requête en direct vers
-  Open-Meteo et affiche la température et l'humidité actuelles sous le
-  bouton.
-- **Identifier un appareil** — choisissez un de vos appareils dans la liste
-  et il se signale (la lampe de démonstration « clignote » dans les logs).
+### Autoriser Gladys sur l'appareil
 
-## Scènes
+À la première connexion, l'écran de l'appareil demande **« Autoriser le débogage USB ? »** avec l'empreinte de
+la clé de Gladys. Cochez **« Toujours autoriser cet ordinateur »** et acceptez. Sans la case cochée, la question
+revient à chaque connexion.
 
-L'intégration ajoute ses propres cartes à l'éditeur de scènes (Gladys 5.1
-ou plus récent), dans la catégorie **Intégrations** :
+Gladys pose la question une fois de lui-même, juste après l'enregistrement de l'adresse. Si vous l'avez manquée
+(écran éteint, personne devant la TV), allumez la TV et lancez l'action **Connecter les appareils** en bas de
+l'écran Configuration : la question réapparaît, et le résultat indique, pour chaque adresse, si Gladys est
+connecté. Il affiche aussi l'empreinte de la clé, à comparer avec celle de l'écran.
 
-- **Mouvement détecté** (déclencheur) — lance la scène quand un détecteur
-  de démonstration voit bouger quelque chose. Choisissez éventuellement le
-  détecteur et ce qui a bougé (personne, animal) ; laissés vides, toute
-  détection correspond. Les actions suivantes peuvent lire ce qui a bougé
-  avec `{{triggerEvent.data.target}}`.
-- **Identifier un appareil** (action) — fait se signaler l'appareil choisi.
-  Elle indique si l'appareil a pu se signaler, pour que les actions
-  suivantes puissent en dépendre.
+## Appareils
 
-## Tableau de bord
+Chaque TV ou box est un appareil, nommé d'après son modèle (vous pouvez le renommer). Ses fonctionnalités :
 
-Ajoutez le widget **État de la démo** à un tableau de bord : il affiche en
-direct la température de la station météo et la puissance de la prise du
-bureau, la connexion utilisée par la prise (en orange si dégradée) et la
-position observée. Son bouton **Identifier la lampe** fait se signaler la
-lampe de démonstration.
+| Fonctionnalité                                   | Type                | Ce qu'elle fait                                                                                       |
+| ------------------------------------------------ | ------------------- | ----------------------------------------------------------------------------------------------------- |
+| Alimentation                                     | Marche/arrêt TV     | 1 quand l'écran est allumé (économiseur compris), 0 en veille ; la basculer réveille ou met en veille |
+| Application                                      | Sélection           | l'application à l'écran ; en choisir une autre l'ouvre                                                |
+| État de lecture                                  | Sélection (lecture) | lecture en cours, en pause, arrêtée, aucune lecture, économiseur d'écran, en veille                   |
+| Volume                                           | Volume TV (%)       | le volume multimédia, quand l'appareil le donne ; le régler le change                                 |
+| Accueil, Retour, flèches, OK                     | Boutons TV          | les touches de navigation                                                                             |
+| Menu, Lecture, Pause, Stop                       | Boutons TV          | les touches de menu et de lecture                                                                     |
+| Suivant, Précédent, Retour rapide, Avance rapide | Boutons TV          | les touches multimédia                                                                                |
+| Volume +, Volume -, Muet                         | Boutons TV          | les touches de volume (sur une box, transmises à la TV par HDMI-CEC)                                  |
+
+La liste **Application** contient les applications installées qui s'ouvrent depuis l'écran d'accueil, avec leur
+nom pour les plus courantes (Netflix, YouTube, Prime Video, Disney+, myCANAL, Molotov, france.tv, Arte, Spotify,
+Deezer, Plex, Kodi, VLC…) et le nom de paquet pour les autres. Elle est relue toutes les six heures.
+
+### Rafraîchissement
+
+Gladys lit chaque appareil de lui-même (il ne compte pas sur l'interrogation du cœur) : toutes les 10 secondes
+(votre réglage) quand l'écran est allumé, par une connexion gardée ouverte pour que les touches répondent tout de
+suite ; une fois par minute en veille, en fermant la connexion après chaque lecture. Une lecture est une seule
+commande sur l'appareil (alimentation, activité, session multimédia et état audio) : la charge est faible.
+Seules les valeurs qui changent sont envoyées à Gladys, plus un rappel toutes les six heures. Pas de compte, pas
+de cloud, pas de quota.
+
+## Widget
+
+Tableau de bord → Modifier → ajoutez le widget **Télécommande ADB** et choisissez l'appareil. Il affiche l'état
+(allumé, économiseur d'écran, en veille, injoignable), l'application à l'écran, l'état de lecture et le volume,
+et **quatre boutons** au choix (réglages « Bouton 1 » à « Bouton 4 » : retour, accueil, lecture/pause et
+marche/arrêt par défaut). Quatre est le nombre de boutons que Gladys accepte par widget : ajoutez un second
+widget pour d'autres touches.
+
+## Déclencheurs de scène
+
+- **Une application passe à l'écran** : l'application au premier plan a changé. Filtres : l'appareil, une
+  application connue, ou n'importe quel nom de paquet (ex. `org.videolan.vlc`). La scène peut utiliser le nom
+  de l'application, le nom de paquet et le nom de l'appareil.
+- **La lecture démarre, se met en pause ou s'arrête** : la session multimédia de l'application à l'écran a
+  changé d'état. Filtres : l'appareil et l'état. La scène peut utiliser l'état, l'application et le nom de
+  l'appareil.
+
+Les deux sont lus au rythme du rafraîchissement (10 secondes par défaut), et seulement écran allumé. Certaines
+applications ne publient pas leur état de lecture : les déclencheurs de lecture restent alors muets pour elles.
+
+## Actions de scène
+
+- **Ouvrir une application sur la TV** : une application connue de la liste (sur une Fire TV, la version Fire
+  TV est choisie), ou n'importe quel nom de paquet.
+- **Appuyer sur une touche** : accueil, retour, flèches, OK, menu, lecture/pause, lecture, pause, stop,
+  suivant, précédent, retour rapide, avance rapide, volume, muet, marche/arrêt, paramètres, recherche ; de un à
+  vingt appuis.
+- **Ouvrir une adresse sur la TV** : une adresse `http`, `https`, `rtsp` ou `rtmp`, ouverte par l'application
+  adaptée (un lien YouTube ouvre YouTube), ou par le paquet que vous indiquez (ex. `org.videolan.vlc` pour le
+  flux d'une caméra).
+
+Il n'y a pas d'action « exécuter une commande shell », volontairement : un shell ADB peut installer, supprimer
+ou lire n'importe quoi sur l'appareil, et une scène est modifiable par tout administrateur de Gladys. Home
+Assistant en propose une ; cette intégration non.
+
+## Exemples de scènes
+
+- **Mode cinéma** : quand Netflix, Prime Video ou Disney+ passe à l'écran après 20 h, baissez les lumières du
+  salon à 20 %.
+- **Pause, lumière** : quand la lecture se met en pause sur la TV du salon, montez les lumières à 60 % ; quand
+  elle reprend, revenez à 20 %.
+- **Infos du matin** : à 7 h 30 en semaine, allumez la TV de la cuisine et ouvrez l'adresse d'un direct
+  d'information sur YouTube.
+- **Coucher des enfants** : quand YouTube Kids passe à l'écran de la TV des enfants après 21 h, envoyez un
+  message aux parents, ou mettez la TV en veille.
 
 ## Dépannage
 
-L'intégration journalise tout ce qu'elle fait : consultez les logs de
-l'intégration depuis l'interface Gladys (ou `docker logs` sur l'hôte) avec
-`LOG_LEVEL=debug` pour le détail complet.
+- **« Jamais joint »** : vérifiez l'adresse, que l'appareil est allumé et que le débogage réseau est activé.
+  Certaines TV (Philips) n'acceptent la première autorisation qu'en Wi-Fi : autorisez une fois en Wi-Fi, la
+  connexion filaire marche ensuite aussi.
+- **« Pas encore autorisé »** : acceptez la question à l'écran en cochant « Toujours autoriser », ou lancez
+  **Connecter les appareils** écran allumé. Android 11+ oublie une autorisation inutilisée pendant sept jours :
+  Options pour les développeurs → « Désactiver l'expiration des autorisations adb ».
+- **« Port de débogage sans fil (appairage) »** : l'adresse pointe vers le port du débogage sans fil d'Android
+  11, pas vers le débogage réseau sur 5555 (voir Prérequis).
+- **Le volume affiche toujours 100 %** : sur une box reliée en HDMI, le volume est celui de la TV (HDMI-CEC), et
+  la box sort un volume fixe. Utilisez les touches Volume +/-, que la box transmet à la TV.
+- **Une application manque dans la liste** : elle n'a pas d'entrée sur l'écran d'accueil (un service, une
+  entrée). Utilisez l'action « Ouvrir une application » avec son nom de paquet.
+- **Un autre client ADB ne se connecte pas** : certains appareils n'acceptent qu'une connexion ADB à la fois.
+  Écran allumé, Gladys en garde une ouverte.
+- **L'appareil ne sort pas de veille** : en veille profonde, certaines TV coupent leur réseau, plus rien ne les
+  joint. Activez l'option de veille réseau de la TV (« Réveil par le réseau », « Démarrage rapide »).
+- **Plus de détails** : réglez `LOG_LEVEL=debug` sur l'intégration pour voir chaque lecture dans ses journaux.
+
+Pour retirer l'autorisation de Gladys d'un appareil : Options pour les développeurs → « Révoquer les
+autorisations de débogage USB ».
+
+## Limites
+
+- Développée sans le matériel : les formats des réponses des appareils viennent des bibliothèques de Home
+  Assistant et des sources d'Android, et varient selon les modèles et les versions. Vos retours sont les
+  bienvenus.
+- Pas de découverte automatique : les appareils n'annoncent pas leur port de débogage réseau de façon fiable,
+  et l'intégration ne peut pas écouter le réseau local par elle-même. Saisissez les adresses.
+- Un appareil dont le réseau dort en veille ne peut pas être allumé par Gladys.
+- L'état de lecture dépend de l'application qui le publie (Netflix, YouTube, Plex, Spotify, VLC oui ; certaines
+  non).
+- Pas de changement d'entrée HDMI, pas de chaîne, pas de capture d'écran, pas de commande shell libre.
+- Le débogage sans fil d'Android 11+ (code d'appairage) n'est pas pris en charge.
+
+## Sécurité et vie privée
+
+- La clé de Gladys (une clé RSA, comme celle de l'outil `adb`) est créée au premier démarrage et gardée dans le
+  volume de données de l'intégration (`/data/adbkey`). Elle n'en sort jamais et n'apparaît jamais dans les
+  journaux. Quiconque la détient, et joint l'appareil sur le réseau, peut piloter l'appareil : gardez vos
+  sauvegardes de Gladys privées.
+- `/data/androidtv-adb.json` garde les appareils identifiés : adresse, numéro de série ou adresse MAC, modèle,
+  version d'Android, applications installées.
+- L'intégration n'envoie que les commandes fixes décrites ici, lit l'état de l'appareil et ne lit jamais vos
+  fichiers. Tout le trafic reste sur votre réseau local.
